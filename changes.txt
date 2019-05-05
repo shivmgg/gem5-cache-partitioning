@@ -1,0 +1,597 @@
+diff --git a/configs/ruby/GPU_VIPER.py b/configs/ruby/GPU_VIPER.py
+index e4ba180..4f67591 100644
+--- a/configs/ruby/GPU_VIPER.py
++++ b/configs/ruby/GPU_VIPER.py
+@@ -73,7 +73,8 @@ class L1Cache(RubyCache):
+     def create(self, size, assoc, options):
+         self.size = MemorySize(size)
+         self.assoc = assoc
+-        self.replacement_policy = PseudoLRUReplacementPolicy()
++        #self.replacement_policy = PseudoLRUReplacementPolicy()
++	self.replacement_policy = LRUReplacementPolicy()
+ 
+ class L2Cache(RubyCache):
+     resourceStalls = False
+@@ -83,7 +84,8 @@ class L2Cache(RubyCache):
+     def create(self, size, assoc, options):
+         self.size = MemorySize(size)
+         self.assoc = assoc
+-        self.replacement_policy = PseudoLRUReplacementPolicy()
++        #self.replacement_policy = PseudoLRUReplacementPolicy()
++        self.replacement_policy = LRUReplacementPolicy()
+ 
+ class CPCntrl(CorePair_Controller, CntrlBase):
+ 
+diff --git a/configs/ruby/MESI_Two_Level.py b/configs/ruby/MESI_Two_Level.py
+index 844c62a..cb617c7 100644
+--- a/configs/ruby/MESI_Two_Level.py
++++ b/configs/ruby/MESI_Two_Level.py
+@@ -72,10 +72,14 @@ def create_system(options, full_system, system, dma_ports, ruby_system):
+         #
+         l1i_cache = L1Cache(size = options.l1i_size,
+                             assoc = options.l1i_assoc,
++                            #adding replacement policy
++                            #replacement_policy = Param.String("LRU",""),
+                             start_index_bit = block_size_bits,
+                             is_icache = True)
+         l1d_cache = L1Cache(size = options.l1d_size,
+                             assoc = options.l1d_assoc,
++                            #adding replacement policy
++                            #replacement_policy = Param.String("LRU",""),
+                             start_index_bit = block_size_bits,
+                             is_icache = False)
+ 
+diff --git a/src/aladdin b/src/aladdin
+--- a/src/aladdin
++++ b/src/aladdin
+@@ -1 +1 @@
+-Subproject commit 422713be97ad0aab90bc807306702196d2c6b1c8
++Subproject commit 422713be97ad0aab90bc807306702196d2c6b1c8-dirty
+diff --git a/src/mem/protocol/MESI_Two_Level-L1cache.sm b/src/mem/protocol/MESI_Two_Level-L1cache.sm
+index 2242250..eddf801 100644
+--- a/src/mem/protocol/MESI_Two_Level-L1cache.sm
++++ b/src/mem/protocol/MESI_Two_Level-L1cache.sm
+@@ -320,8 +320,8 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+                               in_msg.LineAddress,
+                               L1Dcache_entry, TBEs[in_msg.LineAddress]);
+                   }
+-
+-                  if (L1Icache.cacheAvail(in_msg.LineAddress)) {
++                  MachineID machineID;
++                  if (L1Icache.cacheAvail(machineID, in_msg.LineAddress)) {
+                       // L1 does't have the line, but we have space for it
+                       // in the L1 so let's see if the L2 has it
+                       trigger(prefetch_request_type_to_event(in_msg.Type),
+@@ -354,8 +354,8 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+                               in_msg.LineAddress,
+                               L1Icache_entry, TBEs[in_msg.LineAddress]);
+                   }
+-
+-                  if (L1Dcache.cacheAvail(in_msg.LineAddress)) {
++                  MachineID machineID;
++                  if (L1Dcache.cacheAvail(machineID, in_msg.LineAddress)) {
+                       // L1 does't have the line, but we have space for it in
+                       // the L1 let's see if the L2 has it
+                       trigger(prefetch_request_type_to_event(in_msg.Type),
+@@ -463,8 +463,8 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+               trigger(Event:L1_Replacement, in_msg.LineAddress,
+                       L1Dcache_entry, TBEs[in_msg.LineAddress]);
+             }
+-
+-            if (L1Icache.cacheAvail(in_msg.LineAddress)) {
++            MachineID machineID;
++            if (L1Icache.cacheAvail(machineID, in_msg.LineAddress)) {
+               // L1 does't have the line, but we have space for it
+               // in the L1 so let's see if the L2 has it.
+               trigger(mandatory_request_type_to_event(in_msg.Type), in_msg.LineAddress,
+@@ -493,8 +493,8 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+               trigger(Event:L1_Replacement, in_msg.LineAddress,
+                       L1Icache_entry, TBEs[in_msg.LineAddress]);
+             }
+-
+-            if (L1Dcache.cacheAvail(in_msg.LineAddress)) {
++            MachineID machineID;
++            if (L1Dcache.cacheAvail(machineID, in_msg.LineAddress)) {
+               // L1 does't have the line, but we have space for it
+               // in the L1 let's see if the L2 has it.
+               trigger(mandatory_request_type_to_event(in_msg.Type), in_msg.LineAddress,
+@@ -698,6 +698,7 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+       out_msg.DataBlk := tbe.DataBlk;
+       out_msg.Dirty := tbe.Dirty;
+       out_msg.Sender := machineID;
++      //DPRINTF(RubySlicc, "HIII, %d", machineID);
+       out_msg.Destination.add(mapAddressToRange(address, MachineType:L2Cache,
+                           l2_select_low_bit, l2_select_num_bits, intToID(0)));
+       out_msg.MessageSize := MessageSizeType:Response_Data;
+@@ -711,6 +712,7 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+         out_msg.Type := CoherenceResponseType:ACK;
+         out_msg.Sender := machineID;
+         out_msg.Destination.add(in_msg.Requestor);
++        DPRINTF(RubySlicc, "HIII, sendor %d, destination %d", machineID, in_msg.Requestor);
+         out_msg.MessageSize := MessageSizeType:Response_Control;
+       }
+     }
+@@ -916,14 +918,20 @@ machine(MachineType:L1Cache, "MESI Directory L1 Cache CMP")
+   }
+ 
+   action(oo_allocateL1DCacheBlock, "\o", desc="Set L1 D-cache tag equal to tag of block B.") {
++    MachineID requestor;
++    peek(mandatoryQueue_in, RubyRequest) {
++    } 
+     if (is_invalid(cache_entry)) {
+-      set_cache_entry(L1Dcache.allocate(address, new Entry));
++      set_cache_entry(L1Dcache.allocate(address, requestor, new Entry));
+     }
+   }
+ 
+   action(pp_allocateL1ICacheBlock, "\p", desc="Set L1 I-cache tag equal to tag of block B.") {
++    MachineID requestor;
++    peek(mandatoryQueue_in, RubyRequest) {
++    }
+     if (is_invalid(cache_entry)) {
+-      set_cache_entry(L1Icache.allocate(address, new Entry));
++      set_cache_entry(L1Icache.allocate(address, requestor, new Entry));
+     }
+   }
+ 
+diff --git a/src/mem/protocol/MESI_Two_Level-L2cache.sm b/src/mem/protocol/MESI_Two_Level-L2cache.sm
+index 5a8cfae..0afb943 100644
+--- a/src/mem/protocol/MESI_Two_Level-L2cache.sm
++++ b/src/mem/protocol/MESI_Two_Level-L2cache.sm
+@@ -358,20 +358,21 @@ machine(MachineType:L2Cache, "MESI Directory L2 Cache CMP")
+         Entry cache_entry := getCacheEntry(in_msg.addr);
+         TBE tbe := TBEs[in_msg.addr];
+ 
+-        DPRINTF(RubySlicc, "Addr: %#x State: %s Req: %s Type: %s Dest: %s\n",
++        DPRINTF(RubySlicc, "Yo, in L2-cache.sm, Addr: %#x State: %s Req: %s Type: %s Dest: %s\n",
+                 in_msg.addr, getState(tbe, cache_entry, in_msg.addr),
+                 in_msg.Requestor, in_msg.Type, in_msg.Destination);
+ 
+         assert(machineIDToMachineType(in_msg.Requestor) == MachineType:L1Cache);
+         assert(in_msg.Destination.isElement(machineID));
+ 
++        L2cache.checkMasterID(in_msg.Requestor);
+         if (is_valid(cache_entry)) {
+           // The L2 contains the block, so proceeded with handling the request
+           trigger(L1Cache_request_type_to_event(in_msg.Type, in_msg.addr,
+                                                 in_msg.Requestor, cache_entry),
+                   in_msg.addr, cache_entry, tbe);
+         } else {
+-          if (L2cache.cacheAvail(in_msg.addr)) {
++          if (L2cache.cacheAvail(in_msg.Requestor, in_msg.addr)) {
+             // L2 does't have the line, but we have space for it in the L2
+             trigger(L1Cache_request_type_to_event(in_msg.Type, in_msg.addr,
+                                                   in_msg.Requestor, cache_entry),
+@@ -680,8 +681,14 @@ machine(MachineType:L2Cache, "MESI Directory L2 Cache CMP")
+   }
+ 
+   action(qq_allocateL2CacheBlock, "\q", desc="Set L2 cache tag equal to tag of block B.") {
++    MachineID requestor;
++    peek(L1RequestL2Network_in, RequestMsg) {
++        requestor := in_msg.Requestor;
++        DPRINTF(RubySlicc, "Hello %d,\n", in_msg.Requestor); 
++    }
+     if (is_invalid(cache_entry)) {
+-      set_cache_entry(L2cache.allocate(address, new Entry));
++      //L2cache.checkMasterID(requestor);
++      set_cache_entry(L2cache.allocate(address, requestor, new Entry));
+     }
+   }
+ 
+diff --git a/src/mem/protocol/RubySlicc_ComponentMapping.sm b/src/mem/protocol/RubySlicc_ComponentMapping.sm
+index c6b30ed..2a13439 100644
+--- a/src/mem/protocol/RubySlicc_ComponentMapping.sm
++++ b/src/mem/protocol/RubySlicc_ComponentMapping.sm
+@@ -39,3 +39,6 @@ NodeID machineIDToNodeID(MachineID machID);
+ NodeID machineIDToVersion(MachineID machID);
+ MachineType machineIDToMachineType(MachineID machID);
+ MachineID createMachineID(MachineType t, NodeID i);
++
++//Added functions
++//MachineID MachineID();
+diff --git a/src/mem/protocol/RubySlicc_Types.sm b/src/mem/protocol/RubySlicc_Types.sm
+index 27a045d..0b1c662 100644
+--- a/src/mem/protocol/RubySlicc_Types.sm
++++ b/src/mem/protocol/RubySlicc_Types.sm
+@@ -191,11 +191,11 @@ structure(AbstractCacheEntry, primitive="yes", external = "yes") {
+ }
+ 
+ structure (CacheMemory, external = "yes") {
+-  bool cacheAvail(Addr);
++  bool cacheAvail(MachineID, Addr);
+   Addr cacheProbe(Addr);
+-  AbstractCacheEntry allocate(Addr, AbstractCacheEntry);
+-  AbstractCacheEntry allocate(Addr, AbstractCacheEntry, bool);
+-  void allocateVoid(Addr, AbstractCacheEntry);
++  AbstractCacheEntry allocate(Addr, MachineID, AbstractCacheEntry);
++  AbstractCacheEntry allocate(Addr, MachineID, AbstractCacheEntry, bool);
++  void allocateVoid(Addr, MachineID, AbstractCacheEntry);
+   void deallocate(Addr);
+   AbstractCacheEntry lookup(Addr);
+   bool isTagPresent(Addr);
+@@ -210,7 +210,8 @@ structure (CacheMemory, external = "yes") {
+   int getCacheSize();
+   int getNumBlocks();
+   Addr getAddressAtIdx(int);
+-
++  
++  void checkMasterID(MachineID);
+   Scalar demand_misses;
+   Scalar demand_hits;
+ }
+diff --git a/src/mem/ruby/SConscript b/src/mem/ruby/SConscript
+index 5cae880..6e343ee 100644
+--- a/src/mem/ruby/SConscript
++++ b/src/mem/ruby/SConscript
+@@ -54,6 +54,9 @@ DebugFlag('RubySystem')
+ DebugFlag('RubyTester')
+ DebugFlag('RubyStats')
+ DebugFlag('RubyResourceStalls')
++DebugFlag('WayPart')
++DebugFlag('MasterID')
++DebugFlag('Partition')
+ 
+ CompoundFlag('Ruby', [ 'RubyQueue', 'RubyNetwork', 'RubyTester',
+     'RubyGenerated', 'RubySlicc', 'RubySystem', 'RubyCache',
+diff --git a/src/mem/ruby/network/Network.cc b/src/mem/ruby/network/Network.cc
+index 57834f2..290d1ae 100644
+--- a/src/mem/ruby/network/Network.cc
++++ b/src/mem/ruby/network/Network.cc
+@@ -44,6 +44,7 @@
+ #include "mem/ruby/common/MachineID.hh"
+ #include "mem/ruby/network/BasicLink.hh"
+ #include "mem/ruby/system/RubySystem.hh"
++#include "debug/MasterID.hh"
+ 
+ uint32_t Network::m_virtual_networks;
+ uint32_t Network::m_control_msg_size;
+@@ -198,6 +199,7 @@ Network::setFromNetQueue(NodeID id, bool ordered, int network_num,
+ NodeID
+ Network::addressToNodeID(Addr addr, MachineType mtype)
+ {
++    //DPRINTF(MasterID, "In Network, machine type: %s \n", mtype);
+     // Look through the address maps for entries with matching machine
+     // type to get the responsible node for this address.
+     const auto &matching_ranges = addrMap.equal_range(mtype);
+diff --git a/src/mem/ruby/slicc_interface/AbstractController.cc b/src/mem/ruby/slicc_interface/AbstractController.cc
+index b920ff7..72e30b1 100644
+--- a/src/mem/ruby/slicc_interface/AbstractController.cc
++++ b/src/mem/ruby/slicc_interface/AbstractController.cc
+@@ -47,6 +47,7 @@
+ #include "mem/ruby/system/RubySystem.hh"
+ #include "mem/ruby/system/Sequencer.hh"
+ #include "sim/system.hh"
++#include "debug/MasterID.hh"
+ 
+ AbstractController::AbstractController(const Params *p)
+     : MemObject(p), Consumer(this), m_version(p->version),
+@@ -268,7 +269,9 @@ AbstractController::queueMemoryWrite(const MachineID &id, Addr addr,
+                                  m_masterId);
+ 
+     PacketPtr pkt = Packet::createWrite(req);
++    DPRINTF(MasterID, "In AbstractController: Master ID:%s, Machine ID/Name: %s %d \n", pkt->req->masterId(), id.getType(), id.getNum());
+     uint8_t *newData = new uint8_t[RubySystem::getBlockSizeBytes()];
++    
+     pkt->dataDynamic(newData);
+     memcpy(newData, block.getData(0, RubySystem::getBlockSizeBytes()),
+            RubySystem::getBlockSizeBytes());
+diff --git a/src/mem/ruby/slicc_interface/RubyRequest.cc b/src/mem/ruby/slicc_interface/RubyRequest.cc
+index dd26ad6..7c9631b 100644
+--- a/src/mem/ruby/slicc_interface/RubyRequest.cc
++++ b/src/mem/ruby/slicc_interface/RubyRequest.cc
+@@ -27,7 +27,7 @@
+  */
+ 
+ #include "mem/ruby/slicc_interface/RubyRequest.hh"
+-
++#include "debug/MasterID.hh"
+ #include <iostream>
+ 
+ using namespace std;
+@@ -67,6 +67,7 @@ RubyRequest::functionalWrite(Packet *pkt)
+     // has to overwrite the data for the timing request, even if the
+     // timing request has still not been ordered globally.
+ 
++    DPRINTF(MasterID, "In SLICC interface, %s\n", pkt->req->masterId());
+     Addr wBase = pkt->getAddr();
+     Addr wTail = wBase + pkt->getSize();
+     Addr mBase = m_PhysicalAddress;
+diff --git a/src/mem/ruby/structures/AbstractReplacementPolicy.hh b/src/mem/ruby/structures/AbstractReplacementPolicy.hh
+index c118f3c..06647de 100644
+--- a/src/mem/ruby/structures/AbstractReplacementPolicy.hh
++++ b/src/mem/ruby/structures/AbstractReplacementPolicy.hh
+@@ -49,6 +49,10 @@ class AbstractReplacementPolicy : public SimObject
+     /* returns the way to replace */
+     virtual int64_t getVictim(int64_t set) const = 0;
+ 
++    /* additional function */
++    //virtual int64_t getVictim(int64_t set, int lowerWayNum, int upperWayNum) const = 0;
++
++
+     /* get the time of the last access */
+     Tick getLastAccess(int64_t set, int64_t way);
+ 
+diff --git a/src/mem/ruby/structures/CacheMemory.cc b/src/mem/ruby/structures/CacheMemory.cc
+index 8d99c90..fa1603c 100644
+--- a/src/mem/ruby/structures/CacheMemory.cc
++++ b/src/mem/ruby/structures/CacheMemory.cc
+@@ -34,11 +34,14 @@
+ #include "debug/RubyCacheTrace.hh"
+ #include "debug/RubyResourceStalls.hh"
+ #include "debug/RubyStats.hh"
++#include "debug/WayPart.hh"
+ #include "mem/protocol/AccessPermission.hh"
+ #include "mem/ruby/system/RubySystem.hh"
+ #include "mem/ruby/system/WeightedLRUPolicy.hh"
+-
++#include "debug/Partition.hh"
+ using namespace std;
++int lowerWayNum = 0;
++int upperWayNum = 2;
+ 
+ ostream&
+ operator<<(ostream& out, const CacheMemory& obj)
+@@ -147,6 +150,7 @@ CacheMemory::getAddressAtIdx(int idx) const
+     assert(set < m_cache_num_sets);
+ 
+     int way = idx - set * m_cache_assoc;
++    //int way = idx -  set*2; //upperNum defined as 2
+     assert (way < m_cache_assoc);
+ 
+     AbstractCacheEntry* entry = m_cache[set][way];
+@@ -229,13 +233,25 @@ CacheMemory::isTagPresent(Addr address) const
+ //   a) a tag match on this address or there is
+ //   b) an unused line in the same cache "way"
+ bool
+-CacheMemory::cacheAvail(Addr address) const
++CacheMemory::cacheAvail(MachineID machineID, Addr address) const
+ {
+     assert(address == makeLineAddress(address));
+-
++    DPRINTF(Partition, "in cache availability: %s\n", machineID);
+     int64_t cacheSet = addressToCacheSet(address);
+-
+-    for (int i = 0; i < m_cache_assoc; i++) {
++    lowerWayNum = 0; 
++    upperWayNum = m_cache_assoc;
++    if (MachineIDToString(machineID)  == "L1Cache_0")
++    {
++      lowerWayNum = 0;
++      upperWayNum = 2; 
++    }
++    else {
++      lowerWayNum = 0;
++      upperWayNum = m_cache_assoc;
++    }
++    //lowerNum=0 && upperNum=2
++    for (int i=lowerWayNum; i < upperWayNum; i++) {
++    //for (int i = 0; i < m_cache_assoc; i++) {
+         AbstractCacheEntry* entry = m_cache[cacheSet][i];
+         if (entry != NULL) {
+             if (entry->m_Address == address ||
+@@ -251,17 +267,32 @@ CacheMemory::cacheAvail(Addr address) const
+ }
+ 
+ AbstractCacheEntry*
+-CacheMemory::allocate(Addr address, AbstractCacheEntry *entry, bool touch)
++CacheMemory::allocate(Addr address, MachineID machineID, AbstractCacheEntry *entry, bool touch)
+ {
++    //DPRINTF(MachineID, "Hi there, in CacheMemory.cc %d\n", machineID);
++    DPRINTF(Partition, "Hi, in CacheMemory.cc %s\n", machineID);
++    DPRINTF(Partition, "Yes, you are right! %s\n", MachineIDToString(machineID));
+     assert(address == makeLineAddress(address));
+     assert(!isTagPresent(address));
+-    assert(cacheAvail(address));
++    assert(cacheAvail(machineID, address));
+     DPRINTF(RubyCache, "address: %#x\n", address);
+-
++    int lowerWayNum = 0; int upperWayNum = m_cache_assoc;
++    if (MachineIDToString(machineID) == "L1Cache_0") {
++       DPRINTF(Partition, "Reached!!!! \n");
++       lowerWayNum = 0;
++       upperWayNum = 2;
++    }
++   else 
++   {
++       lowerWayNum = 0;
++       upperWayNum = m_cache_assoc;
++    }
+     // Find the first open slot
+     int64_t cacheSet = addressToCacheSet(address);
+     std::vector<AbstractCacheEntry*> &set = m_cache[cacheSet];
+-    for (int i = 0; i < m_cache_assoc; i++) {
++    //lowerWayNum = 0 && UpperWayNum = 2
++     for (int i=lowerWayNum; i < upperWayNum; i++) {
++    //for (int i = 0; i < m_cache_assoc; i++) {
+         if (!set[i] || set[i]->m_Permission == AccessPermission_NotPresent) {
+             if (set[i] && (set[i] != entry)) {
+                 warn_once("This protocol contains a cache entry handling bug: "
+@@ -309,8 +340,10 @@ CacheMemory::deallocate(Addr address)
+ Addr
+ CacheMemory::cacheProbe(Addr address) const
+ {
++    DPRINTF(Partition, "in cacheProbe \n");
+     assert(address == makeLineAddress(address));
+-    assert(!cacheAvail(address));
++    MachineID machineID;
++    assert(!cacheAvail(machineID, address));
+ 
+     int64_t cacheSet = addressToCacheSet(address);
+     return m_cache[cacheSet][m_replacementPolicy_ptr->getVictim(cacheSet)]->
+@@ -447,6 +480,12 @@ CacheMemory::print(ostream& out) const
+ }
+ 
+ void
++CacheMemory::checkMasterID(MachineID machineID)
++{
++    DPRINTF(WayPart, "Hi there, in checkMasterID%d\n", machineID);
++}
++
++void
+ CacheMemory::printData(ostream& out) const
+ {
+     out << "printData() not supported" << endl;
+diff --git a/src/mem/ruby/structures/CacheMemory.hh b/src/mem/ruby/structures/CacheMemory.hh
+index 5b30505..c9a8206 100644
+--- a/src/mem/ruby/structures/CacheMemory.hh
++++ b/src/mem/ruby/structures/CacheMemory.hh
+@@ -46,6 +46,7 @@
+ #include "mem/ruby/system/CacheRecorder.hh"
+ #include "params/RubyCache.hh"
+ #include "sim/sim_object.hh"
++#include "mem/ruby/common/MachineID.hh"
+ 
+ class CacheMemory : public SimObject
+ {
+@@ -69,20 +70,20 @@ class CacheMemory : public SimObject
+     bool isTagPresent(Addr address) const;
+ 
+     // Returns true if there is:
+-    //   a) a tag match on this address or there is
++    // a tag match on this address or there is
+     //   b) an unused line in the same cache "way"
+-    bool cacheAvail(Addr address) const;
++    bool cacheAvail(MachineID machineID, Addr address) const;
+ 
+     // find an unused entry and sets the tag appropriate for the address
+-    AbstractCacheEntry* allocate(Addr address,
++    AbstractCacheEntry* allocate(Addr address, MachineID machineID,
+                                  AbstractCacheEntry* new_entry, bool touch);
+-    AbstractCacheEntry* allocate(Addr address, AbstractCacheEntry* new_entry)
++    AbstractCacheEntry* allocate(Addr address, MachineID machineID, AbstractCacheEntry* new_entry)
+     {
+-        return allocate(address, new_entry, true);
++        return allocate(address, machineID, new_entry, true);
+     }
+-    void allocateVoid(Addr address, AbstractCacheEntry* new_entry)
++    void allocateVoid(Addr address, MachineID machineID, AbstractCacheEntry* new_entry)
+     {
+-        allocate(address, new_entry, true);
++        allocate(address,  machineID, new_entry, true);
+     }
+ 
+     // Explicitly free up this address
+@@ -126,7 +127,7 @@ class CacheMemory : public SimObject
+     void regStats();
+     bool checkResourceAvailable(CacheResourceType res, Addr addr);
+     void recordRequestType(CacheRequestType requestType, Addr addr);
+-
++    void checkMasterID(MachineID machineID);
+   public:
+     Stats::Scalar m_demand_hits;
+     Stats::Scalar m_demand_misses;
+diff --git a/src/mem/ruby/structures/LRUPolicy.cc b/src/mem/ruby/structures/LRUPolicy.cc
+index 3b6d917..beabcc8 100644
+--- a/src/mem/ruby/structures/LRUPolicy.cc
++++ b/src/mem/ruby/structures/LRUPolicy.cc
+@@ -61,9 +61,13 @@ LRUPolicy::getVictim(int64_t set) const
+ {
+     Tick time, smallest_time;
+     int64_t smallest_index = 0;
++    //int64_t smallest_index = lowerWay;
+     smallest_time = m_last_ref_ptr[set][0];
++    //smallest_time = m_last_ref_ptr[set][lowerWay];   
+ 
+-    for (unsigned i = 0; i < m_assoc; i++) {
++   //LowerNum = 0 && UpperNum = 2
++   //for (unsigned i = lowerWay; i < upperWay; i++) {
++   for (unsigned i = 0; i < m_assoc; i++) {
+         time = m_last_ref_ptr[set][i];
+ 
+         if (time < smallest_time) {
+diff --git a/src/mem/ruby/structures/LRUPolicy.hh b/src/mem/ruby/structures/LRUPolicy.hh
+index 3887183..36291f6 100644
+--- a/src/mem/ruby/structures/LRUPolicy.hh
++++ b/src/mem/ruby/structures/LRUPolicy.hh
+@@ -41,8 +41,10 @@ class LRUPolicy : public AbstractReplacementPolicy
+     LRUPolicy(const Params * p);
+     ~LRUPolicy();
+ 
++    //void touch(int64_t set, int64_t way, Tick time);
+     void touch(int64_t set, int64_t way, Tick time);
+     int64_t getVictim(int64_t set) const;
++    //int64_t getVictim(int64_t set);
+ };
+ 
+ #endif // __MEM_RUBY_STRUCTURES_LRUPOLICY_HH__
+diff --git a/src/mem/ruby/structures/RubyCache.py b/src/mem/ruby/structures/RubyCache.py
+index 9fc4726..00ff9dd 100644
+--- a/src/mem/ruby/structures/RubyCache.py
++++ b/src/mem/ruby/structures/RubyCache.py
+@@ -30,6 +30,7 @@
+ from m5.params import *
+ from m5.proxy import *
+ from PseudoLRUReplacementPolicy import PseudoLRUReplacementPolicy
++from LRUReplacementPolicy import LRUReplacementPolicy
+ from m5.SimObject import SimObject
+ 
+ class RubyCache(SimObject):
+@@ -38,8 +39,8 @@ class RubyCache(SimObject):
+     cxx_header = "mem/ruby/structures/CacheMemory.hh"
+     size = Param.MemorySize("capacity in bytes");
+     assoc = Param.Int("");
+-    replacement_policy = Param.ReplacementPolicy(PseudoLRUReplacementPolicy(),
+-                         "")
++    replacement_policy = Param.ReplacementPolicy(LRUReplacementPolicy(), "")
++    #replacement_policy = Param.ReplacementPolicy(LRUReplacementPolicy(), "")
+     start_index_bit = Param.Int(6, "index start, default 6 for 64-byte line");
+     is_icache = Param.Bool(False, "is instruction only cache");
+     block_size = Param.MemorySize("0B", "block size in bytes. 0 means default RubyBlockSize")
+diff --git a/src/mem/ruby/system/RubySystem.cc b/src/mem/ruby/system/RubySystem.cc
+index 3d0470c..6e604a7 100644
+--- a/src/mem/ruby/system/RubySystem.cc
++++ b/src/mem/ruby/system/RubySystem.cc
+@@ -43,6 +43,8 @@
+ #include "mem/simple_mem.hh"
+ #include "sim/eventq.hh"
+ #include "sim/simulate.hh"
++//Adding debug flag
++#include "debug/MasterID.hh"
+ 
+ using namespace std;
+ 
+@@ -90,6 +92,7 @@ RubySystem::registerAbstractController(AbstractController* cntrl)
+ 
+     MachineID id = cntrl->getMachineID();
+     m_abstract_controls[id.getType()][id.getNum()] = cntrl;
++    DPRINTF(MasterID, "In RubySystem, ID/NAME/Whatever: %d, Type: %s \n", id.getNum(), id.getType());
+ }
+ 
+ RubySystem::~RubySystem()
+@@ -103,6 +106,7 @@ RubySystem::makeCacheRecorder(uint8_t *uncompressed_trace,
+                               uint64_t cache_trace_size,
+                               uint64_t block_size_bytes)
+ {
++    DPRINTF(MasterID, "In makeCacheRecorder");
+     vector<Sequencer*> sequencer_map;
+     Sequencer* sequencer_ptr = NULL;
+ 
+@@ -481,6 +485,7 @@ RubySystem::functionalRead(PacketPtr pkt)
+ bool
+ RubySystem::functionalWrite(PacketPtr pkt)
+ {
++    //DPRINTF(MasterID, "in functional Write\n");
+     Addr addr(pkt->getAddr());
+     Addr line_addr = makeLineAddress(addr);
+     AccessPermission access_perm = AccessPermission_NotPresent;
+diff --git a/src/mem/ruby/system/Sequencer.cc b/src/mem/ruby/system/Sequencer.cc
+index 4037fb8..6c96c15 100644
+--- a/src/mem/ruby/system/Sequencer.cc
++++ b/src/mem/ruby/system/Sequencer.cc
+@@ -43,6 +43,7 @@
+ #include "mem/ruby/slicc_interface/RubyRequest.hh"
+ #include "mem/ruby/system/RubySystem.hh"
+ #include "sim/system.hh"
++#include "debug/MasterID.hh"
+ 
+ using namespace std;
+ 
+@@ -452,7 +453,7 @@ Sequencer::hitCallback(SequencerRequest* srequest, DataBlock& data,
+     Addr request_address(pkt->getAddr());
+     RubyRequestType type = srequest->m_type;
+     Cycles issued_time = srequest->issue_time;
+-
++   // DPRINTF(MasterID, "In hitCallback func, master Name: %s \n", pkt->req->masterId());
+     assert(curCycle() >= issued_time);
+     Cycles total_latency = curCycle() - issued_time;
+ 
