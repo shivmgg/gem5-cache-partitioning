@@ -1,0 +1,54 @@
+src/sim/simulate.cc
+@@ -33,8 +33,12 @@
+
+#include "sim/simulate.hh"
+
+#include "/workspace/test.hh"
+
+
+#include <mutex>
+#include <thread>
+#include <iostream>
+
+#include "base/logging.hh"
+#include "base/pollevent.hh"
+@@ -95,6 +99,8 @@ simulate(Tick num_cycles)
+        // handles queue 0, so we only need to allocate new threads
+        // for queues 1..N-1.  We'll call these the "subordinate" threads.
+        for (uint32_t i = 1; i < numMainEventQueues; i++) {
+	    inform("in the for loop which'll call thread loop \n");
+	    std::cout<<"which'll hopefully call doSimLoop"<<"\n";
+            threads.push_back(new std::thread(thread_loop, mainEventQueue[i]));
+        }
+
+@@ -104,8 +110,9 @@ simulate(Tick num_cycles)
+                                       "simulate() limit reached", 0);
+    }
+
+    inform("Entering event queue @ %d.  Starting simulation...\n", curTick());
+
+    inform("Entering event queue yooooooooooooo  @ %d.  Starting simulation...\n", curTick());
+    std::cout<<"hohohohhohohohohooh \n";
+    inform("gogogoggogogogoog \n");
+    if (num_cycles < MaxTick - curTick())
+        num_cycles = curTick() + num_cycles;
+    else // counter would roll over or be set to MaxTick anyhow
+@@ -182,11 +189,18 @@ doSimLoop(EventQueue *eventq)
+    // set the per thread current eventq pointer
+    curEventQueue(eventq);
+    eventq->handleAsyncInsertions();
+
+    int x = 0;
+    while (1) {
+        // there should always be at least one event (the SimLoopExitEvent
+        // we just scheduled) in the queue
+        assert(!eventq->empty());
+	if(curTick()%1000 == 0){
+		inform("curtick is: %d \n", curTick());
+		//function called here
+		x = printHelloWorld(x);
+		inform("VALUE of x =: %d \n" , x);
+
+	}
+        assert(curTick() <= eventq->nextTick() &&
+               "event scheduled in the past");
