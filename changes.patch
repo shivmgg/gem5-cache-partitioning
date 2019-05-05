@@ -1,46 +1,3 @@
-diff --git a/configs/ruby/GPU_VIPER.py b/configs/ruby/GPU_VIPER.py
-index e4ba180..4f67591 100644
---- a/configs/ruby/GPU_VIPER.py
-+++ b/configs/ruby/GPU_VIPER.py
-@@ -73,7 +73,8 @@ class L1Cache(RubyCache):
-     def create(self, size, assoc, options):
-         self.size = MemorySize(size)
-         self.assoc = assoc
--        self.replacement_policy = PseudoLRUReplacementPolicy()
-+        #self.replacement_policy = PseudoLRUReplacementPolicy()
-+	self.replacement_policy = LRUReplacementPolicy()
- 
- class L2Cache(RubyCache):
-     resourceStalls = False
-@@ -83,7 +84,8 @@ class L2Cache(RubyCache):
-     def create(self, size, assoc, options):
-         self.size = MemorySize(size)
-         self.assoc = assoc
--        self.replacement_policy = PseudoLRUReplacementPolicy()
-+        #self.replacement_policy = PseudoLRUReplacementPolicy()
-+        self.replacement_policy = LRUReplacementPolicy()
- 
- class CPCntrl(CorePair_Controller, CntrlBase):
- 
-diff --git a/configs/ruby/MESI_Two_Level.py b/configs/ruby/MESI_Two_Level.py
-index 844c62a..cb617c7 100644
---- a/configs/ruby/MESI_Two_Level.py
-+++ b/configs/ruby/MESI_Two_Level.py
-@@ -72,10 +72,14 @@ def create_system(options, full_system, system, dma_ports, ruby_system):
-         #
-         l1i_cache = L1Cache(size = options.l1i_size,
-                             assoc = options.l1i_assoc,
-+                            #adding replacement policy
-+                            #replacement_policy = Param.String("LRU",""),
-                             start_index_bit = block_size_bits,
-                             is_icache = True)
-         l1d_cache = L1Cache(size = options.l1d_size,
-                             assoc = options.l1d_assoc,
-+                            #adding replacement policy
-+                            #replacement_policy = Param.String("LRU",""),
-                             start_index_bit = block_size_bits,
-                             is_icache = False)
- 
 diff --git a/src/aladdin b/src/aladdin
 --- a/src/aladdin
 +++ b/src/aladdin
@@ -178,17 +135,6 @@ index 5a8cfae..0afb943 100644
      }
    }
  
-diff --git a/src/mem/protocol/RubySlicc_ComponentMapping.sm b/src/mem/protocol/RubySlicc_ComponentMapping.sm
-index c6b30ed..2a13439 100644
---- a/src/mem/protocol/RubySlicc_ComponentMapping.sm
-+++ b/src/mem/protocol/RubySlicc_ComponentMapping.sm
-@@ -39,3 +39,6 @@ NodeID machineIDToNodeID(MachineID machID);
- NodeID machineIDToVersion(MachineID machID);
- MachineType machineIDToMachineType(MachineID machID);
- MachineID createMachineID(MachineType t, NodeID i);
-+
-+//Added functions
-+//MachineID MachineID();
 diff --git a/src/mem/protocol/RubySlicc_Types.sm b/src/mem/protocol/RubySlicc_Types.sm
 index 27a045d..0b1c662 100644
 --- a/src/mem/protocol/RubySlicc_Types.sm
@@ -235,84 +181,7 @@ index 5cae880..6e343ee 100644
      'RubyGenerated', 'RubySlicc', 'RubySystem', 'RubyCache',
 diff --git a/src/mem/ruby/network/Network.cc b/src/mem/ruby/network/Network.cc
 index 57834f2..290d1ae 100644
---- a/src/mem/ruby/network/Network.cc
-+++ b/src/mem/ruby/network/Network.cc
-@@ -44,6 +44,7 @@
- #include "mem/ruby/common/MachineID.hh"
- #include "mem/ruby/network/BasicLink.hh"
- #include "mem/ruby/system/RubySystem.hh"
-+#include "debug/MasterID.hh"
- 
- uint32_t Network::m_virtual_networks;
- uint32_t Network::m_control_msg_size;
-@@ -198,6 +199,7 @@ Network::setFromNetQueue(NodeID id, bool ordered, int network_num,
- NodeID
- Network::addressToNodeID(Addr addr, MachineType mtype)
- {
-+    //DPRINTF(MasterID, "In Network, machine type: %s \n", mtype);
-     // Look through the address maps for entries with matching machine
-     // type to get the responsible node for this address.
-     const auto &matching_ranges = addrMap.equal_range(mtype);
-diff --git a/src/mem/ruby/slicc_interface/AbstractController.cc b/src/mem/ruby/slicc_interface/AbstractController.cc
-index b920ff7..72e30b1 100644
---- a/src/mem/ruby/slicc_interface/AbstractController.cc
-+++ b/src/mem/ruby/slicc_interface/AbstractController.cc
-@@ -47,6 +47,7 @@
- #include "mem/ruby/system/RubySystem.hh"
- #include "mem/ruby/system/Sequencer.hh"
- #include "sim/system.hh"
-+#include "debug/MasterID.hh"
- 
- AbstractController::AbstractController(const Params *p)
-     : MemObject(p), Consumer(this), m_version(p->version),
-@@ -268,7 +269,9 @@ AbstractController::queueMemoryWrite(const MachineID &id, Addr addr,
-                                  m_masterId);
- 
-     PacketPtr pkt = Packet::createWrite(req);
-+    DPRINTF(MasterID, "In AbstractController: Master ID:%s, Machine ID/Name: %s %d \n", pkt->req->masterId(), id.getType(), id.getNum());
-     uint8_t *newData = new uint8_t[RubySystem::getBlockSizeBytes()];
-+    
-     pkt->dataDynamic(newData);
-     memcpy(newData, block.getData(0, RubySystem::getBlockSizeBytes()),
-            RubySystem::getBlockSizeBytes());
-diff --git a/src/mem/ruby/slicc_interface/RubyRequest.cc b/src/mem/ruby/slicc_interface/RubyRequest.cc
-index dd26ad6..7c9631b 100644
---- a/src/mem/ruby/slicc_interface/RubyRequest.cc
-+++ b/src/mem/ruby/slicc_interface/RubyRequest.cc
-@@ -27,7 +27,7 @@
-  */
- 
- #include "mem/ruby/slicc_interface/RubyRequest.hh"
--
-+#include "debug/MasterID.hh"
- #include <iostream>
- 
- using namespace std;
-@@ -67,6 +67,7 @@ RubyRequest::functionalWrite(Packet *pkt)
-     // has to overwrite the data for the timing request, even if the
-     // timing request has still not been ordered globally.
- 
-+    DPRINTF(MasterID, "In SLICC interface, %s\n", pkt->req->masterId());
-     Addr wBase = pkt->getAddr();
-     Addr wTail = wBase + pkt->getSize();
-     Addr mBase = m_PhysicalAddress;
-diff --git a/src/mem/ruby/structures/AbstractReplacementPolicy.hh b/src/mem/ruby/structures/AbstractReplacementPolicy.hh
-index c118f3c..06647de 100644
---- a/src/mem/ruby/structures/AbstractReplacementPolicy.hh
-+++ b/src/mem/ruby/structures/AbstractReplacementPolicy.hh
-@@ -49,6 +49,10 @@ class AbstractReplacementPolicy : public SimObject
-     /* returns the way to replace */
-     virtual int64_t getVictim(int64_t set) const = 0;
- 
-+    /* additional function */
-+    //virtual int64_t getVictim(int64_t set, int lowerWayNum, int upperWayNum) const = 0;
-+
-+
-     /* get the time of the last access */
-     Tick getLastAccess(int64_t set, int64_t way);
- 
-diff --git a/src/mem/ruby/structures/CacheMemory.cc b/src/mem/ruby/structures/CacheMemory.cc
-index 8d99c90..fa1603c 100644
+
 --- a/src/mem/ruby/structures/CacheMemory.cc
 +++ b/src/mem/ruby/structures/CacheMemory.cc
 @@ -34,11 +34,14 @@
